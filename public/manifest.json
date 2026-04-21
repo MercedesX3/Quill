@@ -1,0 +1,20 @@
+{
+  "manifest_version": 3,
+  "name": "Quill Notes",
+  "version": "1.0",
+  "description": "Simple notes app",
+
+  "permissions": ["storage", "sidePanel"],
+
+  "background": {
+    "service_worker": "background.js"
+  },
+
+  "side_panel": {
+    "default_path": "index.html"
+  },
+
+  "action": {
+    "default_title": "Open Quill"
+  }
+}
