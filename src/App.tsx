@@ -1,19 +1,27 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
+import {
+  BriefcaseBusiness,
+  Check,
+  ChevronLeft,
+  ChevronLeftIcon,
+  ChevronRightIcon,
+  Circle,
+  LogOut,
+  Menu,
+  Orbit,
+  PencilLine,
+  Plus,
+  Search,
+  Square,
+  NotebookPen,
+} from "lucide-react";
+import { NoteEditorView } from "./NoteEditorView";
+import { foldersApi, notesApi, stripHtml, unwrapNote, type ApiFolder, type ApiNote } from "./lib/api";
 
 type Screen = "login" | "home" | "note" | "todo" | "calendar";
 type HomeTab = "notes" | "folders";
 
-type NoteItem = {
-  id: string;
-  title: string;
-  date: string;
-  color: string;
-  tags: string[];
-  body: string;
-  bullets?: string[];
-};
-
-type FolderItem = {
+type FolderTile = {
   id: string;
   name: string;
   color: string;
@@ -28,26 +36,45 @@ type TodoGroup = {
   items: string[];
 };
 
-const notes: NoteItem[] = [
+const CARD_BG = ["#01533f", "#0b327d", "#7a1d4b", "#8d6f1f", "#3a856f", "#651a2e"];
+
+const SEED_NOTES: ApiNote[] = [
   {
-    id: "roman-empire",
+    id: "demo-roman",
     title: "Roman Empire - Caesar's Empire",
-    date: "APR 17 10:29 PM",
-    color: "#01533f",
-    tags: ["tag 1", "+1"],
-    body: "Julius Caesar rose to power during a time of political instability in Rome, ultimately becoming dictator. His rule marked the transition from the Roman Republic toward imperial rule.",
-    bullets: [
-      "Julius Caesar - military general and dictator who gained control of Rome",
-      "Brutus - senator involved in Caesar's assassination",
-      "Mark Antony - ally of Caesar who later fought for power",
-    ],
+    content:
+      "<p>Julius Caesar rose to power during a time of political instability in Rome, ultimately becoming dictator. His rule marked the transition from the Roman Republic toward imperial rule.</p>",
+    tags: ["tag 1", "tag 1", "tag 1 example"],
+    folder_id: null,
+    created_at: new Date().toISOString(),
   },
-  { id: "sticky-blue", title: "Sticky Note", date: "DATE 00", color: "#0b327d", tags: ["tag 1", "+1"], body: "Description of the sticky note" },
-  { id: "sticky-rose", title: "Sticky Note", date: "DATE 00", color: "#7a1d4b", tags: ["tag 1", "+1"], body: "To do list 1\nTo do list 2\nTo do list 3" },
-  { id: "sticky-gold", title: "Sticky Note", date: "DATE 00", color: "#8d6f1f", tags: ["tag 1", "+1"], body: "To do list 1\nTo do list 2\nTo do list 3" },
+  {
+    id: "demo-blue",
+    title: "Sticky Note",
+    content: "<p>Description of the sticky note</p>",
+    tags: ["tag 1", "+1"],
+    folder_id: null,
+    created_at: new Date().toISOString(),
+  },
+  {
+    id: "demo-rose",
+    title: "Sticky Note",
+    content: "<p>To do list 1</p><p>To do list 2</p><p>To do list 3</p>",
+    tags: ["tag 1", "+1"],
+    folder_id: null,
+    created_at: new Date().toISOString(),
+  },
+  {
+    id: "demo-gold",
+    title: "Sticky Note",
+    content: "<p>To do list 1</p><p>To do list 2</p><p>To do list 3</p>",
+    tags: ["tag 1", "+1"],
+    folder_id: null,
+    created_at: new Date().toISOString(),
+  },
 ];
 
-const folders: FolderItem[] = [
+const FALLBACK_FOLDERS: FolderTile[] = [
   { id: "f1", name: "Intro to ML", color: "#3a856f", icon: "briefcase" },
   { id: "f2", name: "ACM", color: "#cca53f", icon: "briefcase" },
   { id: "f3", name: "Intro to ML", color: "#a43369", icon: "briefcase" },
@@ -57,9 +84,64 @@ const folders: FolderItem[] = [
 ];
 
 const todoGroups: TodoGroup[] = [
-  { id: "t1", title: "Launch Checklist", color: "#04553f", done: 3, items: ["Final QA on Windows + Mac", "Final QA on Windows + Mac", "Final QA on Windows + Mac", "Final QA on Windows + Mac", "Final QA on Windows + Mac", "Final QA on Windows + Mac"] },
-  { id: "t2", title: "Launch Checklist", color: "#0b327d", done: 3, items: ["Final QA on Windows + Mac", "Final QA on Windows + Mac", "Final QA on Windows + Mac", "Final QA on Windows + Mac", "Final QA on Windows + Mac", "Final QA on Windows + Mac"] },
+  {
+    id: "t1",
+    title: "Launch Checklist",
+    color: "#04553f",
+    done: 3,
+    items: [
+      "Final QA on Windows + Mac",
+      "Final QA on Windows + Mac",
+      "Final QA on Windows + Mac",
+      "Final QA on Windows + Mac",
+      "Final QA on Windows + Mac",
+      "Final QA on Windows + Mac",
+    ],
+  },
+  {
+    id: "t2",
+    title: "Launch Checklist",
+    color: "#0b327d",
+    done: 3,
+    items: [
+      "Final QA on Windows + Mac",
+      "Final QA on Windows + Mac",
+      "Final QA on Windows + Mac",
+      "Final QA on Windows + Mac",
+      "Final QA on Windows + Mac",
+      "Final QA on Windows + Mac",
+    ],
+  },
 ];
+
+function hashHue(id: string): number {
+  let h = 0;
+  for (let i = 0; i < id.length; i += 1) h = (h * 31 + id.charCodeAt(i)) >>> 0;
+  return h;
+}
+
+function cardColor(id: string): string {
+  return CARD_BG[hashHue(id) % CARD_BG.length];
+}
+
+function formatCardDate(iso?: string): string {
+  if (!iso) return "DATE 00";
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "DATE 00";
+  return d
+    .toLocaleString("en-US", { month: "short", day: "numeric" })
+    .replace(",", "")
+    .toUpperCase();
+}
+
+function mapFoldersToTiles(rows: ApiFolder[]): FolderTile[] {
+  return rows.map((f, i) => ({
+    id: f.id,
+    name: f.name,
+    color: CARD_BG[i % CARD_BG.length],
+    icon: i % 3 === 0 ? "spiral" : "briefcase",
+  }));
+}
 
 const GoogleMark = () => (
   <svg className="h-5 w-5 shrink-0" viewBox="0 0 24 24" aria-hidden>
@@ -73,39 +155,121 @@ const GoogleMark = () => (
 const App = () => {
   const [screen, setScreen] = useState<Screen>("login");
   const [tab, setTab] = useState<HomeTab>("notes");
-  const [selectedNoteId, setSelectedNoteId] = useState<string>(notes[0].id);
+  const [remoteNotes, setRemoteNotes] = useState<ApiNote[]>(SEED_NOTES);
+  const [folders, setFolders] = useState<FolderTile[]>(FALLBACK_FOLDERS);
+  const [editorNote, setEditorNote] = useState<ApiNote | null>(null);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [isSidebarOpen, setSidebarOpen] = useState(false);
 
-  const selectedNote = useMemo(
-    () => notes.find((note) => note.id === selectedNoteId) ?? notes[0],
-    [selectedNoteId],
-  );
+  const persistSelectedId = (id: string) => {
+    if (typeof chrome !== "undefined" && chrome.storage?.local) {
+      chrome.storage.local.set({ selectedNoteId: id });
+    }
+  };
 
-  useEffect(() => {
-    chrome.storage.local.get(["selectedNoteId"], (result: { selectedNoteId?: string }) => {
-      if (result.selectedNoteId) setSelectedNoteId(result.selectedNoteId);
-    });
+  const loadLibrary = useCallback(async () => {
+    try {
+      const [noteRows, folderRows] = await Promise.all([notesApi.list(), foldersApi.list()]);
+      setRemoteNotes(noteRows.length ? noteRows : SEED_NOTES);
+      setFolders(folderRows.length ? mapFoldersToTiles(folderRows) : FALLBACK_FOLDERS);
+    } catch {
+      setRemoteNotes(SEED_NOTES);
+      setFolders(FALLBACK_FOLDERS);
+    }
   }, []);
 
-  const openNote = (noteId: string) => {
-    setSelectedNoteId(noteId);
-    chrome.storage.local.set({ selectedNoteId: noteId });
+  useEffect(() => {
+    if (typeof chrome !== "undefined" && chrome.storage?.local) {
+      chrome.storage.local.get(["selectedNoteId"], (result: { selectedNoteId?: string }) => {
+        if (result.selectedNoteId) persistSelectedId(result.selectedNoteId);
+      });
+    }
+  }, []);
+
+  const goHome = () => {
+    setScreen("home");
+    void loadLibrary();
+  };
+
+  const openNote = async (noteId: string) => {
+    persistSelectedId(noteId);
     setScreen("note");
+    try {
+      const fresh = await notesApi.get(noteId);
+      setEditorNote(fresh);
+      return;
+    } catch {
+      const local = remoteNotes.find((n) => n.id === noteId);
+      setEditorNote(local ?? null);
+    }
+  };
+
+  const handleSaveNote = async (payload: { title: string; content: string; tags: string[] }) => {
+    setEditorNote((prev) => {
+      if (!prev) return prev;
+      const next: ApiNote = {
+        ...prev,
+        title: payload.title,
+        content: payload.content,
+        tags: payload.tags,
+      };
+      queueMicrotask(() => {
+        setRemoteNotes((r) => r.map((n) => (n.id === next.id ? next : n)));
+        void notesApi
+          .update(next.id, {
+            title: next.title,
+            content: next.content,
+            folder_id: next.folder_id ?? null,
+            tags: next.tags ?? [],
+          })
+          .catch(() => undefined);
+      });
+      return next;
+    });
+  };
+
+  const createNote = async () => {
+    try {
+      const created = unwrapNote(
+        await notesApi.create({
+          title: "Untitled note",
+          content: "<p><br></p>",
+          folder_id: null,
+          tags: [],
+        }),
+      );
+      setRemoteNotes((prev) => [created, ...prev]);
+      await openNote(created.id);
+      return;
+    } catch {
+      const local: ApiNote = {
+        id: crypto.randomUUID(),
+        title: "Untitled note",
+        content: "<p><br></p>",
+        tags: [],
+        folder_id: null,
+        created_at: new Date().toISOString(),
+      };
+      setRemoteNotes((prev) => [local, ...prev]);
+      setEditorNote(local);
+      persistSelectedId(local.id);
+      setScreen("note");
+    }
   };
 
   const navigateFromSidebar = (next: Screen) => {
     setScreen(next);
     setSidebarOpen(false);
+    if (next === "home") void loadLibrary();
   };
 
   const topBar = (title: string, showBack = false) => (
     <header className="mb-4 flex items-center justify-between">
       <div className="flex w-10 items-center justify-start">
         {showBack ? (
-          <button type="button" onClick={() => setScreen("home")} className="text-xl text-neutral-900" aria-label="Back">
-            ‹
+          <button type="button" onClick={goHome} className="text-xl text-neutral-900" aria-label="Back">
+            <ChevronLeft className="h-5 w-5" />
           </button>
         ) : (
           <div className="h-9 w-9 rounded-full bg-neutral-300" />
@@ -113,9 +277,9 @@ const App = () => {
       </div>
       <h2 className="text-[1.25rem] font-medium tracking-tight">{title}</h2>
       <div className="flex w-16 items-center justify-end gap-3 text-xl text-neutral-900">
-        <span aria-hidden>⌕</span>
+        <Search className="h-5 w-5" aria-hidden />
         <button type="button" onClick={() => setSidebarOpen(true)} aria-label="Open menu">
-          ☰
+          <Menu className="h-5 w-5" />
         </button>
       </div>
     </header>
@@ -147,60 +311,37 @@ const App = () => {
             );
           })}
         </nav>
-        <button type="button" className="absolute bottom-12 left-1/2 flex -translate-x-1/2 items-center gap-3 text-4xl font-semibold text-neutral-400" onClick={() => navigateFromSidebar("login")}>
-          Logout <span aria-hidden>↪</span>
+        <button
+          type="button"
+          className="absolute bottom-12 left-1/2 flex -translate-x-1/2 items-center gap-2 text-2xl font-semibold text-neutral-400"
+          onClick={() => navigateFromSidebar("login")}
+        >
+          Logout <LogOut className="h-5 w-5" aria-hidden />
         </button>
       </aside>
     </div>
   );
 
   if (screen === "note") {
+    if (!editorNote) {
+      return (
+        <div className="mx-auto flex min-h-svh max-w-sm items-center justify-center bg-white px-4 text-sm text-neutral-500">
+          Note not found.
+          <button type="button" className="ml-2 underline" onClick={() => setScreen("home")}>
+            Home
+          </button>
+        </div>
+      );
+    }
     return (
       <>
-        <div className="mx-auto min-h-svh w-full max-w-sm bg-white px-4 pb-8 pt-5 text-neutral-900">
-          <header className="mb-4 flex items-center justify-between gap-2">
-            <button type="button" onClick={() => setScreen("home")} className="shrink-0 text-xl text-neutral-900" aria-label="Back">
-              ‹
-            </button>
-            <h2 className="text-center text-base font-semibold tracking-tight sm:text-lg">All Notes</h2>
-            <div className="flex shrink-0 items-center gap-3 text-lg text-neutral-900">
-              <span aria-hidden>✎</span>
-              <span aria-hidden>⌕</span>
-              <button type="button" onClick={() => setSidebarOpen(true)} aria-label="Open menu">
-                ☰
-              </button>
-            </div>
-          </header>
-
-          <div className="mb-4 h-0.5 w-full bg-[#8b6f1f]" />
-          <p className="font-mono text-xs uppercase tracking-wider text-neutral-500">{selectedNote.date}</p>
-          <h1 className="mt-3 text-2xl font-semibold leading-snug tracking-tight text-neutral-950 sm:text-3xl">{selectedNote.title}</h1>
-          <p className="mt-3 text-sm leading-relaxed text-neutral-500 sm:text-base">{selectedNote.body}</p>
-          <div className="mt-5 flex flex-wrap gap-2">
-            {selectedNote.tags.map((tag) => (
-              <span key={tag} className="rounded bg-[#01533f] px-2.5 py-1 text-xs font-medium text-white">
-                {tag}
-              </span>
-            ))}
-            <button type="button" className="rounded border border-dashed border-neutral-400 px-2.5 py-1 text-xs text-neutral-400">
-              + add
-            </button>
-          </div>
-          <h3 className="mt-6 text-lg font-semibold tracking-tight">Key People</h3>
-          <ul className="mt-2 list-disc space-y-1.5 pl-5 text-sm leading-relaxed">
-            {(selectedNote.bullets ?? []).map((item) => (
-              <li key={item}>{item}</li>
-            ))}
-          </ul>
-          <h3 className="mt-6 text-lg font-semibold tracking-tight">Key People</h3>
-          <ul className="mt-2 list-disc space-y-1.5 pl-5 text-sm leading-relaxed">
-            {(selectedNote.bullets ?? []).map((item, index) => (
-              <li key={`${item}-${index}`} className={index === 2 ? "text-neutral-400" : "text-neutral-900"}>
-                {item}
-              </li>
-            ))}
-          </ul>
-        </div>
+        <NoteEditorView
+          key={editorNote.id}
+          note={editorNote}
+          onBack={goHome}
+          onOpenMenu={() => setSidebarOpen(true)}
+          onSave={handleSaveNote}
+        />
         {sidebar}
       </>
     );
@@ -222,7 +363,11 @@ const App = () => {
                 {group.items.map((item, idx) => (
                   <div key={`${group.id}-${idx}`} className="flex items-center justify-between border-t border-neutral-300 px-3 py-2.5">
                     <div className="flex items-center gap-2">
-                      <span className={`h-4 w-4 border ${idx < group.done ? "bg-[#04553f]" : "bg-transparent"}`} style={{ borderColor: group.color }} />
+                      {idx < group.done ? (
+                        <Check className="h-4 w-4" style={{ color: group.color }} />
+                      ) : (
+                        <Square className="h-4 w-4" style={{ color: group.color }} />
+                      )}
                       <p className={`text-sm ${idx < group.done ? "text-neutral-500 line-through" : "text-neutral-900"}`}>{item}</p>
                     </div>
                     {idx === 3 && (
@@ -237,7 +382,7 @@ const App = () => {
 
           <div className="fixed bottom-4 left-1/2 w-full max-w-sm -translate-x-1/2 px-4">
             <button type="button" className="mx-auto flex w-full max-w-xs items-center justify-center gap-2 rounded-lg bg-black px-5 py-3 text-sm font-semibold text-white">
-              <span aria-hidden>+</span> Add New To Do List
+              <Plus className="h-4 w-4" aria-hidden /> Add New To Do List
             </button>
           </div>
         </div>
@@ -263,11 +408,14 @@ const App = () => {
           <div className="mb-4 h-px w-full bg-neutral-200" />
           <div className="mb-4 flex items-center justify-between">
             <h3 className="text-2xl font-semibold">April 2026</h3>
-            <p className="text-3xl tracking-[0.5em] text-neutral-900">‹›</p>
+            <div className="flex items-center gap-3 text-neutral-900">
+              <ChevronLeftIcon className="h-5 w-5" />
+              <ChevronRightIcon className="h-5 w-5" />
+            </div>
           </div>
           <div className="grid grid-cols-7 gap-y-3 text-center">
-            {days.map((day) => (
-              <p key={day} className="font-mono text-xs text-neutral-500">
+            {days.map((day, i) => (
+              <p key={`${day}-${i}`} className="font-mono text-xs text-neutral-500">
                 {day}
               </p>
             ))}
@@ -276,12 +424,10 @@ const App = () => {
                 {day === "17" ? (
                   <div className="flex h-9 w-9 flex-col items-center justify-center bg-black text-sm text-white">
                     17
-                    <span className="text-[8px]">•</span>
+                    <Circle className="h-1.5 w-1.5 fill-current" />
                   </div>
                 ) : (
-                  <span className={`text-sm ${day ? "text-neutral-900" : "text-transparent"}`}>
-                    {day || "."}
-                  </span>
+                  <span className={`text-sm ${day ? "text-neutral-900" : "text-transparent"}`}>{day || "."}</span>
                 )}
               </div>
             ))}
@@ -292,7 +438,7 @@ const App = () => {
               <h4 className="text-3xl font-semibold">Today - 3 notes</h4>
               <p className="font-mono text-sm text-neutral-400">APR 18, 2026</p>
             </div>
-            {["#cca53f", "#3a856f", "#a43369", "#0b327d"].map((color, idx) => (
+            {["#cca53f", "#3a856f", "#a43369", "#0b327d"].map((color) => (
               <div key={color} className="mb-3 flex gap-3">
                 <div className="w-1" style={{ backgroundColor: color }} />
                 <div>
@@ -301,7 +447,6 @@ const App = () => {
                   </p>
                   <p className="text-sm text-neutral-500">Roman Empire transition notes....</p>
                 </div>
-                {idx > 2 ? null : null}
               </div>
             ))}
           </div>
@@ -317,7 +462,7 @@ const App = () => {
         <div className="mx-auto min-h-svh w-full max-w-sm bg-white px-4 pb-24 pt-4 text-neutral-900">
           {topBar("Home")}
           <div className="mb-3 h-px w-full bg-neutral-200" />
-          <div className="mb-4 grid grid-cols-2 ">
+          <div className="mb-4 grid grid-cols-2">
             <button type="button" onClick={() => setTab("notes")} className={`pb-2 text-sm font-semibold ${tab === "notes" ? "text-neutral-900" : "text-neutral-400"}`}>
               All Notes
               <div className={`mx-auto mt-2 h-0.5 w-16 ${tab === "notes" ? "bg-neutral-900" : "bg-neutral-200"}`} />
@@ -329,33 +474,43 @@ const App = () => {
           </div>
           {tab === "notes" ? (
             <div className="grid grid-cols-2 gap-3">
-              {notes.map((note) => (
-                <button key={note.id} type="button" onClick={() => openNote(note.id)} className="flex min-h-44 flex-col rounded-lg p-2.5 text-left text-white shadow-sm" style={{ backgroundColor: note.color }}>
-                  <p className="font-mono text-[10px] uppercase tracking-wide opacity-90">{note.date}</p>
-                  <p className="mt-1 line-clamp-2 text-sm font-semibold leading-tight">{note.title}</p>
-                  <div className="mt-2 h-px w-full bg-white/80" />
-                  <div className="mt-2 flex flex-wrap gap-1">
-                    {note.tags.map((tag) => (
-                      <span key={tag} className="rounded bg-white/20 px-1.5 py-0.5 font-mono text-[10px]">
-                        {tag}
-                      </span>
-                    ))}
-                  </div>
-                  <div className="mt-auto font-mono text-[10px] leading-snug opacity-90">
-                    {note.body.split("\n").slice(0, 3).map((line) => (
-                      <p key={line}>• {line}</p>
-                    ))}
-                  </div>
-                </button>
-              ))}
+              {remoteNotes.map((note) => {
+                const preview = stripHtml(note.content).slice(0, 120) || "Empty note";
+                const bg = cardColor(note.id);
+                return (
+                  <button
+                    key={note.id}
+                    type="button"
+                    onClick={() => void openNote(note.id)}
+                    className="flex min-h-44 flex-col rounded-lg p-2.5 text-left text-white shadow-sm"
+                    style={{ backgroundColor: bg }}
+                  >
+                    <p className="font-mono text-[10px] uppercase tracking-wide opacity-90">{formatCardDate(note.created_at)}</p>
+                    <p className="mt-1 line-clamp-2 text-sm font-semibold leading-tight">{note.title}</p>
+                    <div className="mt-2 h-px w-full bg-white/80" />
+                    <div className="mt-2 flex flex-wrap gap-1">
+                      {(note.tags ?? []).slice(0, 2).map((tag, ti) => (
+                        <span key={`${note.id}-tag-${ti}`} className="rounded bg-white/20 px-1.5 py-0.5 font-mono text-[10px]">
+                          {tag}
+                        </span>
+                      ))}
+                    </div>
+                    <div className="mt-auto font-mono text-[10px] leading-snug opacity-90">
+                      <p>• {preview}</p>
+                    </div>
+                  </button>
+                );
+              })}
             </div>
           ) : (
             <div className="grid grid-cols-2 gap-3">
               {folders.map((folder) => (
                 <div key={folder.id} className="flex min-h-44 flex-col items-center justify-center rounded-lg px-2 py-4 text-center text-white shadow-sm" style={{ backgroundColor: folder.color }}>
-                  <span className="text-2xl" aria-hidden>
-                    {folder.icon === "briefcase" ? "☐" : "◎"}
-                  </span>
+                  {folder.icon === "briefcase" ? (
+                    <BriefcaseBusiness className="h-6 w-6" aria-hidden />
+                  ) : (
+                    <Orbit className="h-6 w-6" aria-hidden />
+                  )}
                   <p className="mt-2 text-sm font-semibold leading-tight">{folder.name}</p>
                 </div>
               ))}
@@ -363,8 +518,12 @@ const App = () => {
           )}
 
           <div className="fixed bottom-4 left-1/2 w-full max-w-sm -translate-x-1/2 px-4">
-            <button type="button" className="mx-auto flex w-full max-w-xs items-center justify-center gap-2 rounded-full bg-black px-5 py-3 text-sm font-semibold text-white shadow-md">
-              <span aria-hidden>+</span>
+            <button
+              type="button"
+              onClick={() => void createNote()}
+              className="mx-auto flex w-full max-w-xs items-center justify-center gap-2 rounded-full bg-black px-5 py-3 text-sm font-semibold text-white shadow-md"
+            >
+              <Plus className="h-4 w-4" aria-hidden />
               {tab === "notes" ? "Add New Note" : "Add New Folder"}
             </button>
           </div>
@@ -378,8 +537,8 @@ const App = () => {
     <div className="mx-auto flex min-h-svh w-full max-w-sm flex-col justify-center bg-white px-5 py-6 text-neutral-900">
       <div className="mb-5 flex shrink-0 justify-center">
         <div className="relative h-20 w-20 rotate-[-16deg] rounded-md border-4 border-[#4f87ff]">
-          <div className="absolute -right-2 top-3 rotate-12 text-3xl leading-none text-[#d3a11d]">✎</div>
-          <div className="absolute -left-1 top-3 text-xl leading-none text-[#4f87ff]">⊏</div>
+          <PencilLine className="absolute -right-2 top-3 h-6 w-6 rotate-12 text-[#d3a11d]" />
+          <NotebookPen className="absolute -left-1 top-3 h-5 w-5 text-[#4f87ff]" />
         </div>
       </div>
       <h1 className="text-center text-xl font-semibold leading-tight text-[#1e535c] sm:text-2xl">Home for NoteTakers</h1>
@@ -394,7 +553,7 @@ const App = () => {
         <input value={email} onChange={(e) => setEmail(e.target.value)} placeholder="Email" className="h-10 w-full rounded-lg border border-neutral-300 bg-white px-3 text-sm text-neutral-900 placeholder:text-neutral-400 outline-none focus:border-neutral-500" />
         <input value={password} onChange={(e) => setPassword(e.target.value)} type="password" placeholder="Password" className="h-10 w-full rounded-lg border border-neutral-300 bg-white px-3 text-sm text-neutral-900 placeholder:text-neutral-400 outline-none focus:border-neutral-500" />
       </div>
-      <button type="button" onClick={() => setScreen("home")} className="mt-5 w-full rounded-lg bg-black py-2.5 text-sm font-semibold text-white transition hover:bg-neutral-900">
+      <button type="button" onClick={goHome} className="mt-5 w-full rounded-lg bg-black py-2.5 text-sm font-semibold text-white transition hover:bg-neutral-900">
         Login
       </button>
       <div className="mt-5 flex items-center gap-3">
@@ -402,7 +561,7 @@ const App = () => {
         <span className="text-xs font-medium text-neutral-500">Or</span>
         <div className="h-px flex-1 bg-neutral-300" />
       </div>
-      <button type="button" onClick={() => setScreen("home")} className="mt-5 flex h-10 w-full items-center justify-center gap-2 rounded-lg bg-neutral-100 text-sm font-medium text-neutral-900 transition hover:bg-neutral-200">
+      <button type="button" onClick={goHome} className="mt-5 flex h-10 w-full items-center justify-center gap-2 rounded-lg bg-neutral-100 text-sm font-medium text-neutral-900 transition hover:bg-neutral-200">
         <GoogleMark />
         Sign In With Google
       </button>
